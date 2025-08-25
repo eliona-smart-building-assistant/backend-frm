@@ -55,15 +55,23 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, wrapPgxError(err)
 	}
 
 	poolCfg.ConnConfig.RuntimeParams["application_name"] = pool.appName
 	poolCfg.MaxConns = int32(pool.maxPoolSize)
+	poolCfg.BeforeConnect = func(ctx context.Context, connCfg *pgx.ConnConfig) error {
+		pool.credMu.Lock()
+		connCfg.User = pool.login
+		connCfg.Password = pool.password
+		pool.credMu.Unlock()
+
+		return nil
+	}
 
 	pool.pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
-		return nil, err
+		return nil, wrapPgxError(err)
 	}
 
 	pingCtx, pingCtxCancel := context.WithTimeout(ctx, defaultPingTimeout)
@@ -71,7 +79,7 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 
 	err = pool.pool.Ping(pingCtx)
 	if err != nil {
-		return nil, err
+		return nil, wrapPgxError(err)
 	}
 
 	return pool, nil
@@ -86,18 +94,39 @@ func poolConfigFromDSN(dsn string) (*pgxpool.Config, error) {
 	return pgxpool.ParseConfig(dsn)
 }
 
+func (p *Pool) Close() {
+	p.pool.Close()
+}
+
 func (p *Pool) Exec(ctx context.Context, query string, args ...interface{}) (pgconn.CommandTag, error) {
-	return p.pool.Exec(ctx, query, args...)
+	ct, err := p.pool.Exec(ctx, query, args...)
+
+	return ct, wrapPgxError(err)
 }
 
 func (p *Pool) Query(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
-	return p.pool.Query(ctx, query, args...)
+	rows, err := p.pool.Query(ctx, query, args...)
+
+	return rows, wrapPgxError(err)
 }
 
+// SetCredentials updates login and password that will be used for connections of already created pool.
+// All idle connections are reset and will be recreated with new credentials.
+// Already acquired connections are not affected.
 func (p *Pool) SetCredentials(login string, password string) {
 	p.credMu.Lock()
 
 	p.login = login
+	p.password = password
+
+	p.pool.Reset()
+
+	p.credMu.Unlock()
+}
+
+func (p *Pool) SetPassword(password string) {
+	p.credMu.Lock()
+
 	p.password = password
 
 	p.pool.Reset()
