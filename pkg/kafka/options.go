@@ -54,3 +54,9 @@ func WithContext(ctx context.Context) Opt {
 		c.opts = append(c.opts, kgo.WithContext(ctx))
 	}
 }
+
+func ResetOffsetsToEnd() Opt {
+	return func(c *Client) {
+		c.opts = append(c.opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
+	}
+}
