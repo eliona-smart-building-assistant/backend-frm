@@ -48,6 +48,17 @@ func (w WorkloadIdentityProvider) GetToken(ctx context.Context, scopes ...string
 	return token, nil
 }
 
+func (w WorkloadIdentityProvider) GetTokenWithAutoRefresh(ctx context.Context, callback CallbackFn, scopes ...string) (azcore.AccessToken, error) {
+	token, err := w.GetToken(ctx, scopes...)
+	if err != nil {
+		return azcore.AccessToken{}, err
+	}
+
+	w.SetAutoRefresh(ctx, token, callback, scopes...)
+
+	return token, nil
+}
+
 func (w WorkloadIdentityProvider) SetAutoRefresh(ctx context.Context, token azcore.AccessToken, callback CallbackFn, scopes ...string) {
 	go func() {
 		next := getNext(token)

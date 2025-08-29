@@ -17,16 +17,17 @@ const (
 )
 
 type Pool struct {
-	pool        *pgxpool.Pool
-	maxPoolSize int
-	port        int
-	dsn         string
-	hostname    string
-	appName     string
-	credMu      sync.Mutex
-	login       string
-	password    string
-	database    string
+	pool                  *pgxpool.Pool
+	maxPoolSize           int
+	port                  int
+	dsn                   string
+	hostname              string
+	appName               string
+	credMu                sync.Mutex
+	allowCredentialChange bool
+	login                 string
+	password              string
+	database              string
 }
 
 func defaultPool() *Pool {
@@ -60,13 +61,16 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 
 	poolCfg.ConnConfig.RuntimeParams["application_name"] = pool.appName
 	poolCfg.MaxConns = int32(pool.maxPoolSize)
-	poolCfg.BeforeConnect = func(ctx context.Context, connCfg *pgx.ConnConfig) error {
-		pool.credMu.Lock()
-		connCfg.User = pool.login
-		connCfg.Password = pool.password
-		pool.credMu.Unlock()
 
-		return nil
+	if pool.allowCredentialChange {
+		poolCfg.BeforeConnect = func(ctx context.Context, connCfg *pgx.ConnConfig) error {
+			pool.credMu.Lock()
+			connCfg.User = pool.login
+			connCfg.Password = pool.password
+			pool.credMu.Unlock()
+
+			return nil
+		}
 	}
 
 	pool.pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
@@ -114,6 +118,10 @@ func (p *Pool) Query(ctx context.Context, query string, args ...interface{}) (pg
 // All idle connections are reset and will be recreated with new credentials.
 // Already acquired connections are not affected.
 func (p *Pool) SetCredentials(login string, password string) {
+	if !p.allowCredentialChange {
+		return
+	}
+
 	p.credMu.Lock()
 
 	p.login = login
@@ -125,6 +133,10 @@ func (p *Pool) SetCredentials(login string, password string) {
 }
 
 func (p *Pool) SetPassword(password string) {
+	if !p.allowCredentialChange {
+		return
+	}
+
 	p.credMu.Lock()
 
 	p.password = password
