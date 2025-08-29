@@ -78,10 +78,7 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 		return nil, wrapPgxError(err)
 	}
 
-	pingCtx, pingCtxCancel := context.WithTimeout(ctx, defaultPingTimeout)
-	defer pingCtxCancel()
-
-	err = pool.pool.Ping(pingCtx)
+	err = pool.pool.Ping(ctx)
 	if err != nil {
 		return nil, wrapPgxError(err)
 	}
