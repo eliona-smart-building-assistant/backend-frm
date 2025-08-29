@@ -14,6 +14,12 @@ func WithPort(port int) Opt {
 	}
 }
 
+func AllowCredentialChange() Opt {
+	return func(p *Pool) {
+		p.allowCredentialChange = true
+	}
+}
+
 func WithCredentials(login, password string) Opt {
 	return func(p *Pool) {
 		p.login = login
