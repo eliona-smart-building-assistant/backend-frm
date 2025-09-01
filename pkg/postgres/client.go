@@ -111,6 +111,11 @@ func (p *Pool) Query(ctx context.Context, query string, args ...interface{}) (pg
 	return rows, wrapPgxError(err)
 }
 
+// AquireConn returns lower-level connection. You must release it via .Release().
+func (p *Pool) AquireConn(ctx context.Context) (*pgxpool.Conn, error) {
+	return p.pool.Acquire(ctx)
+}
+
 // SetCredentials updates login and password that will be used for connections of already created pool.
 // All idle connections are reset and will be recreated with new credentials.
 // Already acquired connections are not affected.
