@@ -111,8 +111,8 @@ func (p *Pool) Query(ctx context.Context, query string, args ...interface{}) (pg
 	return rows, wrapPgxError(err)
 }
 
-// AquireConn returns lower-level connection. You must release it via .Release().
-func (p *Pool) AquireConn(ctx context.Context) (*pgxpool.Conn, error) {
+// AcquireConn returns lower-level connection. You must release it via .Release().
+func (p *Pool) AcquireConn(ctx context.Context) (*pgxpool.Conn, error) {
 	return p.pool.Acquire(ctx)
 }
 
