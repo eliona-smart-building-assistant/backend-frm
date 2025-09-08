@@ -50,3 +50,9 @@ func WithApplicationName(name string) Opt {
 		p.appName = name
 	}
 }
+
+func WithAsyncCommits() Opt {
+	return func(p *Pool) {
+		p.asyncCommits = true
+	}
+}

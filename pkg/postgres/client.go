@@ -25,6 +25,7 @@ type Pool struct {
 	appName               string
 	credMu                sync.Mutex
 	allowCredentialChange bool
+	asyncCommits          bool
 	login                 string
 	password              string
 	database              string
@@ -70,6 +71,13 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 			pool.credMu.Unlock()
 
 			return nil
+		}
+	}
+
+	if pool.asyncCommits {
+		poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, execErr := conn.Exec(ctx, "SET SYNCHRONOUS_COMMIT TO OFF")
+			return execErr
 		}
 	}
 
