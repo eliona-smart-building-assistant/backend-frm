@@ -138,13 +138,48 @@ func (c *Client) PollRecords(fn func(r Record)) error {
 	return nil
 }
 
+func (c *Client) PollRecordsContext(ctx context.Context, fn func(r Record)) error {
+	if c.consumerRunning {
+		return fmt.Errorf("background consumer running")
+	}
+
+	fetches := c.client.PollRecords(ctx, c.maxFetches)
+	if fetches.IsClientClosed() {
+		return kgo.ErrClientClosed
+	}
+
+	if errs := fetches.Errors(); len(errs) > 0 {
+		return fetches.Err0()
+	}
+
+	fetches.EachRecord(func(record *kgo.Record) {
+		fn(record)
+	})
+
+	return nil
+}
+
 func (c *Client) FetchRecords() ([]*kgo.Record, error) {
 	if c.consumerRunning {
 		return nil, fmt.Errorf("background consumer running")
 	}
 
-	ctx, cancel := context.WithTimeout(c.client.Context(), time.Second*5)
-	defer cancel()
+	fetches := c.client.PollRecords(nil, c.maxFetches)
+	if fetches.IsClientClosed() {
+		return nil, kgo.ErrClientClosed
+	}
+
+	if errs := fetches.Errors(); len(errs) > 0 {
+		return nil, fetches.Err0()
+	}
+
+	return fetches.Records(), nil
+}
+
+func (c *Client) FetchRecordsContext(ctx context.Context) ([]*kgo.Record, error) {
+	if c.consumerRunning {
+		return nil, fmt.Errorf("background consumer running")
+	}
 
 	fetches := c.client.PollRecords(ctx, c.maxFetches)
 	if fetches.IsClientClosed() {
