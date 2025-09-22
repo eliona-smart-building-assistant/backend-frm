@@ -26,6 +26,9 @@ type Pool struct {
 	credMu                sync.Mutex
 	allowCredentialChange bool
 	asyncCommits          bool
+	overrideRole          string
+	afterConnectFuncs     []func(ctx context.Context, conn *pgx.Conn) error
+	afterReleaseFuncs     []func(conn *pgx.Conn) bool
 	login                 string
 	password              string
 	database              string
@@ -74,10 +77,47 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 		}
 	}
 
+	if pool.overrideRole != "" {
+		pool.afterConnectFuncs = append(pool.afterConnectFuncs, func(ctx context.Context, conn *pgx.Conn) error {
+			_, execErr := conn.Exec(ctx, "SET ROLE "+pool.overrideRole)
+			return execErr
+		})
+
+		pool.afterReleaseFuncs = append(pool.afterReleaseFuncs, func(conn *pgx.Conn) bool {
+			_, execErr := conn.Exec(context.Background(), "RESET ROLE")
+			return execErr == nil
+		})
+	}
+
 	if pool.asyncCommits {
-		poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		pool.afterConnectFuncs = append(pool.afterConnectFuncs, func(ctx context.Context, conn *pgx.Conn) error {
 			_, execErr := conn.Exec(ctx, "SET SYNCHRONOUS_COMMIT TO OFF")
 			return execErr
+		})
+	}
+
+	if len(pool.afterConnectFuncs) > 0 {
+		poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			for _, fn := range pool.afterConnectFuncs {
+				execErr := fn(ctx, conn)
+				if execErr != nil {
+					return execErr
+				}
+			}
+
+			return nil
+		}
+	}
+
+	if len(pool.afterReleaseFuncs) > 0 {
+		poolCfg.AfterRelease = func(conn *pgx.Conn) bool {
+			for _, fn := range pool.afterReleaseFuncs {
+				if !fn(conn) {
+					return false
+				}
+			}
+
+			return true
 		}
 	}
 
@@ -103,8 +143,10 @@ func poolConfigFromDSN(dsn string) (*pgxpool.Config, error) {
 	return pgxpool.ParseConfig(dsn)
 }
 
-func (p *Pool) Close() {
+func (p *Pool) Close(ctx context.Context) error {
 	p.pool.Close()
+
+	return nil
 }
 
 func (p *Pool) Exec(ctx context.Context, query string, args ...interface{}) (pgconn.CommandTag, error) {
@@ -119,7 +161,31 @@ func (p *Pool) Query(ctx context.Context, query string, args ...interface{}) (pg
 	return rows, wrapPgxError(err)
 }
 
-// AcquireConn returns lower-level connection. You must release it via .Release().
+func (p *Pool) ExecAs(ctx context.Context, role string, query string, args ...interface{}) (pgconn.CommandTag, error) {
+	conn, err := p.AcquireConn(ctx)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
+
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, "SET ROLE "+role)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
+
+	ct, err := p.Exec(ctx, query, args...)
+
+	_, _ = conn.Exec(ctx, "RESET ROLE")
+
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
+
+	return ct, nil
+}
+
+// AcquireConn returns a lower-level connection. You must release it via .Release().
 func (p *Pool) AcquireConn(ctx context.Context) (*pgxpool.Conn, error) {
 	return p.pool.Acquire(ctx)
 }
@@ -127,6 +193,10 @@ func (p *Pool) AcquireConn(ctx context.Context) (*pgxpool.Conn, error) {
 // Pool return lower-level Pool object from pgx
 func (p *Pool) Pool() *pgxpool.Pool {
 	return p.pool
+}
+
+func (p *Pool) Tx(ctx context.Context) (pgx.Tx, error) {
+	return p.pool.BeginTx(ctx, pgx.TxOptions{})
 }
 
 // SetCredentials updates login and password that will be used for connections of already created pool.

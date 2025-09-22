@@ -10,29 +10,39 @@ import (
 )
 
 func GetDatabasePool(ctx context.Context, appName string, poolSize int) (*postgres.Pool, error) {
+	return getDatabasePool(ctx, appName, poolSize)
+}
+
+func GetDatabasePoolWithOverrideRole(ctx context.Context, role string, appName string, poolSize int) (*postgres.Pool, error) {
+	return getDatabasePool(ctx, appName, poolSize, postgres.WithOverrideRole(role))
+}
+
+func getDatabasePool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
 	azClientID := utils.EnvOrDefault("AZURE_CLIENT_ID", "")
 
 	if azClientID != "" {
-		return createWorkloadIdentityDbPool(ctx, appName, poolSize)
+		return createWorkloadIdentityDbPool(ctx, appName, poolSize, opts...)
 	}
 
-	return createDbPool(ctx, appName, poolSize)
+	return createDbPool(ctx, appName, poolSize, opts...)
 }
 
-func createDbPool(ctx context.Context, appName string, poolSize int) (*postgres.Pool, error) {
+func createDbPool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
 	dsn := utils.EnvOrDefault("CONNECTION_STRING", "")
 
 	pool, err := postgres.NewPool(
 		ctx,
-		postgres.WithDSN(dsn),
-		postgres.WithApplicationName(appName),
-		postgres.WithMaxPoolSize(poolSize),
+		append(opts,
+			postgres.WithDSN(dsn),
+			postgres.WithApplicationName(appName),
+			postgres.WithMaxPoolSize(poolSize),
+		)...,
 	)
 
 	return pool, err
 }
 
-func createWorkloadIdentityDbPool(ctx context.Context, appName string, poolSize int) (*postgres.Pool, error) {
+func createWorkloadIdentityDbPool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
 	dbHost := utils.EnvOrDefault("PGHOST", "")
 	dbPort, _ := strconv.Atoi(utils.EnvOrDefault("PGPORT", "5432"))
 	dbUser := utils.EnvOrDefault("PGUSER", "")
@@ -49,13 +59,15 @@ func createWorkloadIdentityDbPool(ctx context.Context, appName string, poolSize 
 	}
 
 	pool, err := postgres.NewPool(ctx,
-		postgres.WithApplicationName(appName),
-		postgres.WithMaxPoolSize(poolSize),
-		postgres.AllowCredentialChange(),
-		postgres.WithHostname(dbHost),
-		postgres.WithPort(dbPort),
-		postgres.WithDatabase(dbName),
-		postgres.WithCredentials(dbUser, azureToken.Token),
+		append(opts,
+			postgres.WithApplicationName(appName),
+			postgres.WithMaxPoolSize(poolSize),
+			postgres.AllowCredentialChange(),
+			postgres.WithHostname(dbHost),
+			postgres.WithPort(dbPort),
+			postgres.WithDatabase(dbName),
+			postgres.WithCredentials(dbUser, azureToken.Token),
+		)...,
 	)
 
 	if err != nil {
