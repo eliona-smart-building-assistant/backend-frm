@@ -56,3 +56,9 @@ func WithAsyncCommits() Opt {
 		p.asyncCommits = true
 	}
 }
+
+func WithOverrideRole(role string) Opt {
+	return func(p *Pool) {
+		p.overrideRole = role
+	}
+}
