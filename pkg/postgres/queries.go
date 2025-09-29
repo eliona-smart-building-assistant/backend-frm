@@ -82,3 +82,12 @@ func CollectSingleValue[T any](ctx context.Context, q Querier, sql string, args 
 
 	return collected, nil
 }
+
+func CollectRowsToMap(ctx context.Context, q Querier, sql string, args ...any) ([]map[string]interface{}, error) {
+	rows, err := q.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, wrapPgxError(err)
+	}
+
+	return pgx.CollectRows(rows, pgx.RowToMap)
+}

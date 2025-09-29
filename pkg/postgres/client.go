@@ -185,6 +185,30 @@ func (p *Pool) ExecAs(ctx context.Context, role string, query string, args ...in
 	return ct, nil
 }
 
+func (p *Pool) QueryAs(ctx context.Context, role string, query string, args ...interface{}) (pgx.Rows, error) {
+	conn, err := p.AcquireConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, "SET ROLE "+role)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := p.Query(ctx, query, args...)
+
+	_, _ = conn.Exec(ctx, "RESET ROLE")
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
 // AcquireConn returns a lower-level connection. You must release it via .Release().
 func (p *Pool) AcquireConn(ctx context.Context) (*pgxpool.Conn, error) {
 	return p.pool.Acquire(ctx)
