@@ -26,3 +26,7 @@ func (c *Client) Close(ctx context.Context) error {
 func (c *Client) NewQueueListener(queue string) (*azservicebus.Receiver, error) {
 	return c.client.NewReceiverForQueue(queue, nil)
 }
+
+func (c *Client) NewReceiverForSubscription(topic string, subscription string) (*azservicebus.Receiver, error) {
+	return c.client.NewReceiverForSubscription(topic, subscription, nil)
+}
