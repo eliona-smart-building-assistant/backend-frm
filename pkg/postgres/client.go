@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 const (
@@ -26,6 +28,7 @@ type Pool struct {
 	credMu                sync.Mutex
 	allowCredentialChange bool
 	asyncCommits          bool
+	resetOnAcquire        bool
 	overrideRole          string
 	afterConnectFuncs     []func(ctx context.Context, conn *pgx.Conn) error
 	afterReleaseFuncs     []func(conn *pgx.Conn) bool
@@ -94,6 +97,15 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 			_, execErr := conn.Exec(ctx, "SET SYNCHRONOUS_COMMIT TO OFF")
 			return execErr
 		})
+	}
+
+	if pool.resetOnAcquire {
+		poolCfg.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
+			_, execErr := conn.Exec(ctx,
+				"RESET ALL; RESET SESSION AUTHORIZATION; DEALLOCATE ALL; SET synchronous_commit TO OFF; SET request.jwt.claims='{}';")
+
+			return true, execErr
+		}
 	}
 
 	if len(pool.afterConnectFuncs) > 0 {
@@ -217,6 +229,12 @@ func (p *Pool) AcquireConn(ctx context.Context) (*pgxpool.Conn, error) {
 // Pool return lower-level Pool object from pgx
 func (p *Pool) Pool() *pgxpool.Pool {
 	return p.pool
+}
+
+func (p *Pool) StdlibDB() *sql.DB {
+	db := stdlib.OpenDBFromPool(p.pool)
+
+	return db
 }
 
 func (p *Pool) Tx(ctx context.Context) (pgx.Tx, error) {

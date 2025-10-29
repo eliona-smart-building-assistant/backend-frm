@@ -62,3 +62,9 @@ func WithOverrideRole(role string) Opt {
 		p.overrideRole = role
 	}
 }
+
+func WithResetOnAcquire() Opt {
+	return func(p *Pool) {
+		p.resetOnAcquire = true
+	}
+}
