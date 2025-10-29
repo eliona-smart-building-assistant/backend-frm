@@ -101,8 +101,7 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 
 	if pool.resetOnAcquire {
 		poolCfg.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
-			_, execErr := conn.Exec(ctx,
-				"RESET ALL; RESET SESSION AUTHORIZATION; DEALLOCATE ALL; SET synchronous_commit TO OFF; SET request.jwt.claims='{}';")
+			_, execErr := conn.Exec(ctx, "SET request.jwt.claims='{}';")
 
 			return true, execErr
 		}
@@ -231,6 +230,7 @@ func (p *Pool) Pool() *pgxpool.Pool {
 	return p.pool
 }
 
+// StdlibDB returns a *sql.DB that uses the underlying pgx pool.
 func (p *Pool) StdlibDB() *sql.DB {
 	db := stdlib.OpenDBFromPool(p.pool)
 
@@ -241,7 +241,7 @@ func (p *Pool) Tx(ctx context.Context) (pgx.Tx, error) {
 	return p.pool.BeginTx(ctx, pgx.TxOptions{})
 }
 
-// SetCredentials updates login and password that will be used for connections of already created pool.
+// SetCredentials updates login and password that will be used for connections of an already created pool.
 // All idle connections are reset and will be recreated with new credentials.
 // Already acquired connections are not affected.
 func (p *Pool) SetCredentials(login string, password string) {
