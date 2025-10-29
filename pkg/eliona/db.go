@@ -9,12 +9,12 @@ import (
 	"github.com/eliona-smart-building-assistant/backend-frm/pkg/utils"
 )
 
-func GetDatabasePool(ctx context.Context, appName string, poolSize int) (*postgres.Pool, error) {
-	return getDatabasePool(ctx, appName, poolSize)
+func GetDatabasePool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
+	return getDatabasePool(ctx, appName, poolSize, opts...)
 }
 
-func GetDatabasePoolWithOverrideRole(ctx context.Context, role string, appName string, poolSize int) (*postgres.Pool, error) {
-	return getDatabasePool(ctx, appName, poolSize, postgres.WithOverrideRole(role))
+func GetDatabasePoolWithOverrideRole(ctx context.Context, role string, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
+	return getDatabasePool(ctx, appName, poolSize, append(opts, postgres.WithOverrideRole(role))...)
 }
 
 func getDatabasePool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
