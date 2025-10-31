@@ -70,29 +70,24 @@ func tokenFromHeader(header string) string {
 	return parts[1]
 }
 
-type AuthorizationMiddleware struct {
-	key  []byte
-	next http.Handler
-}
+func NewAuthorizationMiddleware(jwtSigningKey []byte) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token, err := findAuthToken(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 
-func NewAuthorizationMiddleware(signingKey []byte, next http.Handler) AuthorizationMiddleware {
-	return AuthorizationMiddleware{key: signingKey, next: next}
-}
+			claims, err := parseJWT(jwtSigningKey, token)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 
-func (m AuthorizationMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	token, err := findAuthToken(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), "claims", claims)))
+		})
 	}
-
-	claims, err := parseJWT(m.key, token)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return
-	}
-
-	m.next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), "claims", claims)))
 }
 
 type AccessCheckMiddleware struct{}
