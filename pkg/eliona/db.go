@@ -24,10 +24,10 @@ func getDatabasePool(ctx context.Context, appName string, poolSize int, opts ...
 		return createWorkloadIdentityDbPool(ctx, appName, poolSize, opts...)
 	}
 
-	return createDbPool(ctx, appName, poolSize, opts...)
+	return CreateDbPool(ctx, appName, poolSize, opts...)
 }
 
-func createDbPool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
+func CreateDbPool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
 	dsn := utils.EnvOrDefault("CONNECTION_STRING", "")
 
 	pool, err := postgres.NewPool(
