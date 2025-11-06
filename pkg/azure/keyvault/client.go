@@ -86,15 +86,21 @@ func NewClient(vaultURL string) (*Client, error) {
 // Result is cached forever for that (keyName, version) pair.
 // Pass version=nil or version="" to resolve "latest".
 func (c *Client) GetPublicKey(ctx context.Context, keyName string, version *string) (*azkeys.JSONWebKey, error) {
+
+	// Resolve requested version (empty means "latest")
 	v := ""
 	if version != nil {
-		v = *version
-	}
-	cacheKey := keyName + "|" + v
-	if got, ok := c.byVersion.Load(cacheKey); ok {
-		return got.(*azkeys.JSONWebKey), nil
+		v = strings.TrimSpace(*version)
 	}
 
+	// For a concrete version, try immutable cache first
+	if v != "" {
+		if got, ok := c.byVersion.Load(keyName + "|" + v); ok {
+			return got.(*azkeys.JSONWebKey), nil
+		}
+	}
+
+	// Fetch from Key Vault (v == "" -> latest)
 	resp, err := c.client.GetKey(ctx, keyName, v, nil)
 	if err != nil {
 		return nil, err
@@ -103,13 +109,19 @@ func (c *Client) GetPublicKey(ctx context.Context, keyName string, version *stri
 		return nil, errors.New("invalid or missing JWK fields")
 	}
 
+	// If caller asked for latest, resolve the actual version from KID
 	if v == "" && resp.Key.KID != nil {
 		if _, _, rv := ParseKeyID(resp.Key.KID); rv != "" {
-			cacheKey = keyName + "|" + rv
+			// Seed immutable cache for the concrete version
+			c.byVersion.Store(keyName+"|"+rv, resp.Key)
+			return resp.Key, nil
 		}
+		// No version could be parsed (unlikely) -> return without caching
+		return resp.Key, nil
 	}
-	c.byVersion.Store(cacheKey, resp.Key)
 
+	// Caller asked for a specific version: cache immutably under that version
+	c.byVersion.Store(keyName+"|"+v, resp.Key)
 	return resp.Key, nil
 }
 
@@ -119,19 +131,22 @@ func (c *Client) GetSigner(ctx context.Context, keyName string, version *string)
 	if strings.TrimSpace(keyName) == "" {
 		return nil, fmt.Errorf("keyName is required")
 	}
-	ver := ""
+
+	// Resolve requested version (empty means "latest")
+	v := ""
 	if version != nil {
-		ver = strings.TrimSpace(*version)
-	}
-	cacheKey := keyName + "|" + ver
-
-	// If we already have a signer cached under this (name|version) key, return it.
-	if s, ok := c.signers.Load(cacheKey); ok {
-		return s.(crypto.Signer), nil
+		v = strings.TrimSpace(*version)
 	}
 
-	// Fetch JWK (also seeds byVersion cache). If latest, resolve concrete version.
-	resp, err := c.client.GetKey(ctx, keyName, ver, nil)
+	// For an explicit version, return cached signer if present
+	if v != "" {
+		if s, ok := c.signers.Load(keyName + "|" + v); ok {
+			return s.(crypto.Signer), nil
+		}
+	}
+
+	// Fetch JWK (v == "" -> latest)
+	resp, err := c.client.GetKey(ctx, keyName, v, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -139,19 +154,23 @@ func (c *Client) GetSigner(ctx context.Context, keyName string, version *string)
 		return nil, errors.New("invalid or missing JWK fields")
 	}
 
+	// Build public key
 	pub, err := JWKToPublicKey(resp.Key)
 	if err != nil {
 		return nil, err
 	}
 
-	resolvedVersion := ver
+	// Resolve concrete version from KID if caller asked for latest
+	resolvedVersion := v
 	if resolvedVersion == "" && resp.Key.KID != nil {
 		if _, _, rv := ParseKeyID(resp.Key.KID); rv != "" {
 			resolvedVersion = rv
+			// seed immutable public-key cache for this version
 			c.byVersion.Store(keyName+"|"+rv, resp.Key)
 		}
 	}
 
+	// Create KV-backed signer
 	kvs := &kvSigner{
 		client:  c.client,
 		ctx:     ctx,
@@ -160,13 +179,14 @@ func (c *Client) GetSigner(ctx context.Context, keyName string, version *string)
 		pub:     pub,
 	}
 
-	// Cache under the requested key (name|ver). If ver == "", cache under "" and also under resolved version for future direct lookups.
-	actual, _ := c.signers.LoadOrStore(cacheKey, kvs)
-	if resolvedVersion != "" && ver == "" {
-		c.signers.Store(keyName+"|"+resolvedVersion, actual)
+	// Cache ONLY under a concrete version (never under empty "latest")
+	if resolvedVersion != "" {
+		actual, _ := c.signers.LoadOrStore(keyName+"|"+resolvedVersion, kvs)
+		return actual.(crypto.Signer), nil
 	}
 
-	return actual.(crypto.Signer), nil
+	// If we couldn't resolve a version (very rare), don't cache.
+	return kvs, nil
 }
 
 // ParseKeyID extracts the Vault URL, key name, and version (if present)
