@@ -8,6 +8,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.10.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.4.0
 	github.com/ProtonMail/gopenpgp/v3 v3.3.0
+	github.com/eliona-smart-building-assistant/go-utils v1.1.10
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/twmb/franz-go v1.19.5
