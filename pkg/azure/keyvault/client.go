@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
+	"github.com/eliona-smart-building-assistant/go-utils/log"
 	"math/big"
 	"os"
 	"strings"
@@ -86,43 +87,107 @@ func NewClient(vaultURL string) (*Client, error) {
 // Result is cached forever for that (keyName, version) pair.
 // Pass version=nil or version="" to resolve "latest".
 func (c *Client) GetPublicKey(ctx context.Context, keyName string, version *string) (*azkeys.JSONWebKey, error) {
-
-	// Resolve requested version (empty means "latest")
 	v := ""
 	if version != nil {
-		v = strings.TrimSpace(*version)
+		v = *version
 	}
 
-	// For a concrete version, try immutable cache first
-	if v != "" {
-		if got, ok := c.byVersion.Load(keyName + "|" + v); ok {
-			return got.(*azkeys.JSONWebKey), nil
-		}
+	log.Debug(
+		"KeyVault Client",
+		"GetPublicKey called keyName=%q version=%q",
+		keyName, v,
+	)
+
+	cacheKey := keyName + "|" + v
+
+	// Check cache
+	if got, ok := c.byVersion.Load(cacheKey); ok {
+		jwk := got.(*azkeys.JSONWebKey)
+
+		log.Debug(
+			"KeyVault Client",
+			"GetPublicKey: cache HIT for key=%q (version=%q), kid=%q kty=%q",
+			keyName, v, safeKid(jwk.KID), safeKty(jwk.Kty),
+		)
+
+		return jwk, nil
 	}
 
-	// Fetch from Key Vault (v == "" -> latest)
+	log.Debug(
+		"KeyVault Client",
+		"GetPublicKey: cache MISS → querying Azure Key Vault keyName=%q version=%q",
+		keyName, v,
+	)
+
+	// Fetch from Azure Key Vault
 	resp, err := c.client.GetKey(ctx, keyName, v, nil)
 	if err != nil {
+		log.Debug(
+			"KeyVault Client",
+			"GetPublicKey: Azure GetKey FAILED keyName=%q version=%q error=%v",
+			keyName, v, err,
+		)
 		return nil, err
 	}
+
 	if resp.Key == nil || resp.Key.Kty == nil {
+		log.Debug(
+			"KeyVault Client",
+			"GetPublicKey: INVALID JWK returned keyName=%q version=%q (missing Key or Kty)",
+			keyName, v,
+		)
 		return nil, errors.New("invalid or missing JWK fields")
 	}
 
-	// If caller asked for latest, resolve the actual version from KID
+	log.Debug(
+		"KeyVault Client",
+		"GetPublicKey: Azure returned JWK kid=%q kty=%q",
+		safeKid(resp.Key.KID), safeKty(resp.Key.Kty),
+	)
+
+	// If no version was provided, infer actual version from KeyID if possible
 	if v == "" && resp.Key.KID != nil {
 		if _, _, rv := ParseKeyID(resp.Key.KID); rv != "" {
-			// Seed immutable cache for the concrete version
-			c.byVersion.Store(keyName+"|"+rv, resp.Key)
-			return resp.Key, nil
+			log.Debug(
+				"KeyVault Client",
+				"GetPublicKey: no version provided, resolved actual version=%q from kid=%q",
+				rv, *resp.Key.KID,
+			)
+			cacheKey = keyName + "|" + rv
 		}
-		// No version could be parsed (unlikely) -> return without caching
-		return resp.Key, nil
 	}
 
-	// Caller asked for a specific version: cache immutably under that version
-	c.byVersion.Store(keyName+"|"+v, resp.Key)
+	// Store in cache
+	c.byVersion.Store(cacheKey, resp.Key)
+
+	log.Debug(
+		"KeyVault Client",
+		"GetPublicKey: stored in cache under cacheKey=%q",
+		cacheKey,
+	)
+
 	return resp.Key, nil
+}
+
+// safeKid logs the ID in a truncated form so you can still match it by eye.
+func safeKid(kid *azkeys.ID) string {
+	if kid == nil {
+		return ""
+	}
+	// Best-effort textual representation of your ID type
+	s := fmt.Sprintf("%v", *kid)
+	if len(s) > 60 {
+		return s[:60] + "...(truncated)"
+	}
+	return s
+}
+
+// adjust type here to whatever KeyType is in your JSONWebKey
+func safeKty(kty *azkeys.KeyType) string {
+	if kty == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", *kty)
 }
 
 // GetSigner returns a cached crypto.Signer that uses Key Vault to sign with the given key/version.
