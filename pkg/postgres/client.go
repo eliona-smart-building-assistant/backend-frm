@@ -85,11 +85,6 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 			_, execErr := conn.Exec(ctx, "SET ROLE "+pool.overrideRole)
 			return execErr
 		})
-
-		pool.afterReleaseFuncs = append(pool.afterReleaseFuncs, func(conn *pgx.Conn) bool {
-			_, execErr := conn.Exec(context.Background(), "RESET ROLE")
-			return execErr == nil
-		})
 	}
 
 	if pool.asyncCommits {
