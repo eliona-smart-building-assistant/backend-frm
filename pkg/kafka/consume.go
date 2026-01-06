@@ -12,9 +12,9 @@ const (
 	commitInterval = 100 * time.Millisecond
 )
 
-// AddConsumeTopic add specified topic to internal consumption list.
+// AddConsumeTopic add a specified topic to an internal consumption list.
 //
-// If client is initialized with WithSubscriptions option then this call is no-op - use AddSubscription instead
+// If a client is initialized with the WithSubscriptions option, then this call is no-op - use AddSubscription instead
 func (c *Client) AddConsumeTopic(topic string) {
 	if c.subscriptions != nil {
 		return
@@ -33,6 +33,9 @@ func (c *Client) RemoveConsumeTopic(topic string) {
 
 func (c *Client) AddSubscription(topic string, handler HandlerFunc) {
 	c.subsMu.Lock()
+	if c.subscriptions == nil {
+		c.subscriptions = make(map[string]HandlerFunc)
+	}
 	c.subscriptions[topic] = handler
 	c.client.AddConsumeTopics(topic)
 	c.subsMu.Unlock()
@@ -53,7 +56,10 @@ func (c *Client) StartConsumer(ctx context.Context) {
 }
 
 func (c *Client) consumeWorker(ctx context.Context) {
-	defer c.wg.Done()
+	defer func() {
+		c.wg.Done()
+		c.consumerRunning = false
+	}()
 
 	for {
 		select {
@@ -67,7 +73,7 @@ func (c *Client) consumeWorker(ctx context.Context) {
 
 			if errs := fetches.Errors(); len(errs) > 0 {
 				for i := range errs {
-					c.logger.Error("Kafka", "Error polling records: %v", errs[i])
+					c.onError(wrapKgoConsumerError(errs[i].Err))
 				}
 
 				continue
