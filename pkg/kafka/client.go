@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eliona-smart-building-assistant/backend-frm/pkg/log"
+
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -21,7 +23,9 @@ type Subscriptions map[string]HandlerFunc
 
 type Client struct {
 	client          *kgo.Client
-	logger          Logger
+	onError         func(error)
+	onPublish       func(Record)
+	logger          log.Logger
 	manualCommit    bool
 	consumerRunning bool
 	opts            []kgo.Opt
@@ -36,7 +40,8 @@ type Client struct {
 func defaultClient() *Client {
 	hostname, _ := os.Hostname()
 	return &Client{
-		logger:     NoopLogger{},
+		onError:    func(error) {},
+		logger:     log.NoopLogger(),
 		opts:       []kgo.Opt{kgo.ClientID(hostname)},
 		shutdown:   make(chan struct{}),
 		maxFetches: 1,
@@ -56,6 +61,12 @@ func New(opts ...Opt) (*Client, error) {
 		return nil, err
 	}
 
+	logger := client.logger.With().
+		Str("module", "kafka").
+		Str("client_id", client.client.OptValue(kgo.ClientID).(string)).
+		Logger()
+	client.logger = &logger
+
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer pingCancel()
 	err = client.client.Ping(pingCtx)
@@ -71,6 +82,8 @@ func New(opts ...Opt) (*Client, error) {
 	for topic := range client.subscriptions {
 		client.client.AddConsumeTopics(topic)
 	}
+
+	client.logger.Info().Msg("client initialized")
 
 	return client, nil
 }

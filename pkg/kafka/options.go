@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 
+	"github.com/eliona-smart-building-assistant/backend-frm/pkg/log"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -58,5 +59,17 @@ func WithContext(ctx context.Context) Opt {
 func ResetOffsetsToEnd() Opt {
 	return func(c *Client) {
 		c.opts = append(c.opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
+	}
+}
+
+func WithOnError(fn func(error)) Opt {
+	return func(c *Client) {
+		c.onError = fn
+	}
+}
+
+func WithLogger(l log.Logger) Opt {
+	return func(c *Client) {
+		c.logger = l
 	}
 }
