@@ -39,15 +39,16 @@ func NewLogger(out io.Writer, level Level) Logger {
 
 	if isDevEnv {
 		consoleWriter := zerolog.ConsoleWriter{Out: out, TimeFormat: "15:04:05.999999"}
-		l := zerolog.New(consoleWriter).With().Timestamp().Logger()
-		l.Level(zerolog.Level(level))
+		l := zerolog.New(consoleWriter).
+			Level(zerolog.Level(level)).
+			With().Timestamp().Logger()
 
 		return &l
 	}
 
 	// Production logger
-	l := zerolog.New(out).With().Timestamp().Logger()
-	l.Level(zerolog.Level(level))
+	l := zerolog.New(out).Level(zerolog.Level(level)).
+		With().Timestamp().Logger()
 
 	return &l
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/eliona-smart-building-assistant/backend-frm/pkg/log"
 	"github.com/eliona-smart-building-assistant/backend-frm/pkg/utils"
 )
 
@@ -19,13 +20,15 @@ type CallbackFn func(string)
 type WorkloadIdentityProvider struct {
 	credential *azidentity.WorkloadIdentityCredential
 	tenantId   string
+	logger     log.Logger
 }
 
-func NewWorkloadIdentity() (*WorkloadIdentityProvider, error) {
+func NewWorkloadIdentity( /*logger log.Logger*/ ) (*WorkloadIdentityProvider, error) {
 	tenantId := utils.EnvOrDefault("AZURE_TENANT_ID", "")
+	clientId := utils.EnvOrDefault("AZURE_CLIENT_ID", "")
 
 	credential, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{
-		ClientID:      utils.EnvOrDefault("AZURE_CLIENT_ID", ""),
+		ClientID:      clientId,
 		TenantID:      tenantId,
 		TokenFilePath: utils.EnvOrDefault("AZURE_FEDERATED_TOKEN_FILE", ""),
 	})
@@ -34,7 +37,13 @@ func NewWorkloadIdentity() (*WorkloadIdentityProvider, error) {
 		return nil, err
 	}
 
-	return &WorkloadIdentityProvider{credential: credential, tenantId: tenantId}, nil
+	//ownLogger := logger.With().
+	//	Str("module", "workload-identity").
+	//	Str("azure_tenant_id", tenantId).
+	//	Str("azure_client_id", clientId).
+	//	Logger()
+
+	return &WorkloadIdentityProvider{credential: credential, tenantId: tenantId /*, logger: &ownLogger*/}, nil
 }
 
 func (w WorkloadIdentityProvider) GetToken(ctx context.Context, scopes ...string) (azcore.AccessToken, error) {
@@ -70,6 +79,8 @@ func (w WorkloadIdentityProvider) SetAutoRefresh(ctx context.Context, token azco
 			case <-time.After(next):
 				newToken, err := w.GetToken(ctx, scopes...)
 				if err != nil {
+					//w.logger.Error().Err(err).Msg("failed to refresh token")
+					//continue
 					panic(err)
 				}
 
