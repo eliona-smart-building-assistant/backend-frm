@@ -74,7 +74,7 @@ func createWorkloadIdentityDbPool(ctx context.Context, appName string, poolSize 
 		return nil, err
 	}
 
-	azureTokenProvider.SetAutoRefresh(ctx, azureToken, pool.SetPassword, identity.ScopeDefinitionDatabase)
+	azureTokenProvider.SetAutoRefresh(azureToken, pool.SetPassword, identity.ScopeDefinitionDatabase)
 
 	return pool, nil
 }
