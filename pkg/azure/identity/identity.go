@@ -21,9 +21,10 @@ type WorkloadIdentityProvider struct {
 	credential *azidentity.WorkloadIdentityCredential
 	tenantId   string
 	logger     log.Logger
+	stopChan   chan struct{}
 }
 
-func NewWorkloadIdentity( /*logger log.Logger*/ ) (*WorkloadIdentityProvider, error) {
+func NewWorkloadIdentity() (*WorkloadIdentityProvider, error) {
 	tenantId := utils.EnvOrDefault("AZURE_TENANT_ID", "")
 	clientId := utils.EnvOrDefault("AZURE_CLIENT_ID", "")
 
@@ -37,13 +38,7 @@ func NewWorkloadIdentity( /*logger log.Logger*/ ) (*WorkloadIdentityProvider, er
 		return nil, err
 	}
 
-	//ownLogger := logger.With().
-	//	Str("module", "workload-identity").
-	//	Str("azure_tenant_id", tenantId).
-	//	Str("azure_client_id", clientId).
-	//	Logger()
-
-	return &WorkloadIdentityProvider{credential: credential, tenantId: tenantId /*, logger: &ownLogger*/}, nil
+	return &WorkloadIdentityProvider{credential: credential, tenantId: tenantId, stopChan: make(chan struct{})}, nil
 }
 
 func (w WorkloadIdentityProvider) GetToken(ctx context.Context, scopes ...string) (azcore.AccessToken, error) {
@@ -63,24 +58,24 @@ func (w WorkloadIdentityProvider) GetTokenWithAutoRefresh(ctx context.Context, c
 		return azcore.AccessToken{}, err
 	}
 
-	w.SetAutoRefresh(ctx, token, callback, scopes...)
+	w.SetAutoRefresh(token, callback, scopes...)
 
 	return token, nil
 }
 
-func (w WorkloadIdentityProvider) SetAutoRefresh(ctx context.Context, token azcore.AccessToken, callback CallbackFn, scopes ...string) {
+func (w WorkloadIdentityProvider) SetAutoRefresh(token azcore.AccessToken, callback CallbackFn, scopes ...string) {
 	go func() {
 		next := getNext(token)
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-w.stopChan:
 				return
 			case <-time.After(next):
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				newToken, err := w.GetToken(ctx, scopes...)
+				cancel()
 				if err != nil {
-					//w.logger.Error().Err(err).Msg("failed to refresh token")
-					//continue
 					panic(err)
 				}
 
@@ -92,7 +87,7 @@ func (w WorkloadIdentityProvider) SetAutoRefresh(ctx context.Context, token azco
 }
 
 func getNext(token azcore.AccessToken) time.Duration {
-	refreshAt := token.ExpiresOn.Add(-5 * time.Minute)
+	refreshAt := token.ExpiresOn.Add(-10 * time.Minute)
 	if !token.RefreshOn.IsZero() {
 		refreshAt = token.RefreshOn
 	}

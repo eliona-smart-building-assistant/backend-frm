@@ -260,10 +260,7 @@ func (p *Pool) SetPassword(password string) {
 	}
 
 	p.credMu.Lock()
-
 	p.password = password
-
 	p.pool.Reset()
-
 	p.credMu.Unlock()
 }
