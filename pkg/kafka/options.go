@@ -38,14 +38,14 @@ func WithGroup(group string) func(*Client) {
 
 func WithMaxFetchCount(max int) func(*Client) {
 	return func(c *Client) {
-		c.maxFetches = max
+		c.config.maxFetches = max
 	}
 }
 
 func WithManualCommit() func(c *Client) {
 	return func(c *Client) {
 		c.opts = append(c.opts, kgo.DisableAutoCommit())
-		c.manualCommit = true
+		c.config.manualCommit = true
 		c.commitQueue = make(chan *kgo.Record, 1)
 	}
 }
@@ -64,12 +64,53 @@ func ResetOffsetsToEnd() Opt {
 
 func WithOnError(fn func(error)) Opt {
 	return func(c *Client) {
-		c.onError = fn
+		c.callbacks.onConsumerError = fn
 	}
 }
 
 func WithLogger(l log.Logger) Opt {
 	return func(c *Client) {
 		c.logger = l
+	}
+}
+
+type PartitionEvent int
+
+const (
+	PartitionAssigned PartitionEvent = iota
+	Partitionrevoked
+	PartitionLost
+)
+
+type PartitionEventCb func(event PartitionEvent, topic string, partition int)
+
+func WithOnPartitionEvents(fn PartitionEventCb) Opt {
+	cb := func(event PartitionEvent) func(context.Context, *kgo.Client, map[string][]int32) {
+		return func(_ context.Context, _ *kgo.Client, m map[string][]int32) {
+			for topic, partitions := range m {
+				for i := range partitions {
+					fn(event, topic, int(partitions[i]))
+				}
+			}
+		}
+	}
+
+	return func(c *Client) {
+		c.callbacks.onPartitionsAssigned = append(c.callbacks.onPartitionsAssigned, cb(PartitionAssigned))
+		c.callbacks.onPartitionsRevoked = append(c.callbacks.onPartitionsRevoked, cb(Partitionrevoked))
+		c.callbacks.onPartitionsLost = append(c.callbacks.onPartitionsLost, cb(PartitionLost))
+	}
+}
+
+func WithConcurentConsumer() Opt {
+	return func(c *Client) {
+		c.config.splitConsumer = true
+	}
+}
+
+func WithBlockRebalanceOnPoll() Opt {
+	return func(c *Client) {
+		c.opts = append(c.opts, kgo.BlockRebalanceOnPoll())
+		c.config.blockRebalance = true
 	}
 }

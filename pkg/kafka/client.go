@@ -11,7 +11,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-type Record *kgo.Record
+type Record = *kgo.Record
 
 func NewRecord() Record {
 	return &kgo.Record{}
@@ -21,30 +21,53 @@ type HandlerFunc func(Record)
 
 type Subscriptions map[string]HandlerFunc
 
+type eventCallbacks struct {
+	onPartitionsAssigned []func(context.Context, *kgo.Client, map[string][]int32)
+	onPartitionsRevoked  []func(context.Context, *kgo.Client, map[string][]int32)
+	onPartitionsLost     []func(context.Context, *kgo.Client, map[string][]int32)
+	onConsumerError      func(error)
+	onPublishResult      func(Record)
+}
+
+type config struct {
+	splitConsumer  bool
+	manualCommit   bool
+	blockRebalance bool
+	maxFetches     int
+}
+
+type consumer struct {
+	sc      *splitConsumer
+	running bool
+}
+
 type Client struct {
-	client          *kgo.Client
-	onError         func(error)
-	onPublish       func(Record)
-	logger          log.Logger
-	manualCommit    bool
-	consumerRunning bool
-	opts            []kgo.Opt
-	subsMu          sync.Mutex
-	subscriptions   Subscriptions
-	shutdown        chan struct{}
-	commitQueue     chan *kgo.Record
-	wg              sync.WaitGroup
-	maxFetches      int
+	client        *kgo.Client
+	logger        log.Logger
+	opts          []kgo.Opt
+	subsMu        sync.Mutex
+	subscriptions Subscriptions
+	shutdown      chan struct{}
+	commitQueue   chan *kgo.Record
+	wg            sync.WaitGroup
+	callbacks     eventCallbacks
+	config        config
+	consumer      consumer
 }
 
 func defaultClient() *Client {
 	hostname, _ := os.Hostname()
 	return &Client{
-		onError:    func(error) {},
-		logger:     log.NoopLogger(),
-		opts:       []kgo.Opt{kgo.ClientID(hostname)},
-		shutdown:   make(chan struct{}),
-		maxFetches: 1,
+		callbacks: eventCallbacks{
+			onConsumerError: func(error) {},
+			onPublishResult: func(Record) {},
+		},
+		config: config{
+			maxFetches: 1,
+		},
+		logger:   log.NoopLogger(),
+		opts:     []kgo.Opt{kgo.ClientID(hostname)},
+		shutdown: make(chan struct{}),
 	}
 }
 
@@ -55,6 +78,15 @@ func New(opts ...Opt) (*Client, error) {
 	for _, opt := range opts {
 		opt(client)
 	}
+
+	if client.config.splitConsumer {
+		client.consumer.sc = newSplitConsumer(client)
+		client.callbacks.onPartitionsAssigned = append(client.callbacks.onPartitionsAssigned, client.consumer.sc.onPartitionsAssigned)
+		client.callbacks.onPartitionsRevoked = append(client.callbacks.onPartitionsRevoked, client.consumer.sc.onPartitionsLost)
+		client.callbacks.onPartitionsLost = append(client.callbacks.onPartitionsLost, client.consumer.sc.onPartitionsLost)
+	}
+
+	client.assignPartitionCallbacks()
 
 	client.client, err = kgo.NewClient(client.opts...)
 	if err != nil {
@@ -74,7 +106,7 @@ func New(opts ...Opt) (*Client, error) {
 		return nil, err
 	}
 
-	if client.manualCommit {
+	if client.config.manualCommit {
 		client.wg.Add(1)
 		go client.commitWorker()
 	}
@@ -86,6 +118,32 @@ func New(opts ...Opt) (*Client, error) {
 	client.logger.Info().Msg("client initialized")
 
 	return client, nil
+}
+
+func (c *Client) assignPartitionCallbacks() {
+	if len(c.callbacks.onPartitionsAssigned) > 0 {
+		c.opts = append(c.opts, kgo.OnPartitionsAssigned(func(ctx context.Context, cl *kgo.Client, m map[string][]int32) {
+			for _, fn := range c.callbacks.onPartitionsAssigned {
+				fn(ctx, cl, m)
+			}
+		}))
+	}
+
+	if len(c.callbacks.onPartitionsRevoked) > 0 {
+		c.opts = append(c.opts, kgo.OnPartitionsRevoked(func(ctx context.Context, cl *kgo.Client, m map[string][]int32) {
+			for _, fn := range c.callbacks.onPartitionsRevoked {
+				fn(ctx, cl, m)
+			}
+		}))
+	}
+
+	if len(c.callbacks.onPartitionsLost) > 0 {
+		c.opts = append(c.opts, kgo.OnPartitionsLost(func(ctx context.Context, cl *kgo.Client, m map[string][]int32) {
+			for _, fn := range c.callbacks.onPartitionsLost {
+				fn(ctx, cl, m)
+			}
+		}))
+	}
 }
 
 func (c *Client) Close() {
