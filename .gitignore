@@ -35,3 +35,4 @@ tests/
 # .idea/
 # .vscode/
 /.idea/
+.zed/
