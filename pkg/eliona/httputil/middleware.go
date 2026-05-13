@@ -9,9 +9,6 @@ import (
 )
 
 type ElionaJWT struct {
-	Audit        string `json:"aud"`
-	ExpiresAt    int    `json:"exp"`
-	IssuedBy     string `json:"iss"`
 	Role         string `json:"role"`
 	RoleID       string `json:"role_id"`
 	UserID       string `json:"user_id"`
@@ -70,6 +67,10 @@ func tokenFromHeader(header string) string {
 	return parts[1]
 }
 
+// NewAuthorizationMiddleware returns a middleware that performs checks for presense of `elionaAuthorization` cookie
+// or Authorization header (Bearer) and parses it as JWT using provided signing key.
+//
+// It sets `claims` value to request's context which is instance of [ElionaJWT]
 func NewAuthorizationMiddleware(jwtSigningKey []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

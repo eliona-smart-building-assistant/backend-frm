@@ -50,30 +50,36 @@ func (c *Client) RemoveSubscription(topic string) {
 
 // StartConsumer starts background polling of records on topics defined in Subscriptions
 func (c *Client) StartConsumer(ctx context.Context) {
-	c.consumerRunning = true
+	c.consumer.running = true
+
 	c.wg.Add(1)
-	go c.consumeWorker(ctx)
+	if c.config.splitConsumer {
+		go c.consumer.sc.consume(ctx)
+	} else {
+		go c.consumeWorker(ctx)
+	}
 }
 
 func (c *Client) consumeWorker(ctx context.Context) {
 	defer func() {
 		c.wg.Done()
-		c.consumerRunning = false
+		c.consumer.running = false
 	}()
 
+	maxFetches := c.config.maxFetches
 	for {
 		select {
 		case <-c.shutdown:
 			return
 		default:
-			fetches := c.client.PollRecords(ctx, c.maxFetches)
+			fetches := c.client.PollRecords(ctx, maxFetches)
 			if fetches.IsClientClosed() {
 				return
 			}
 
 			if errs := fetches.Errors(); len(errs) > 0 {
 				for i := range errs {
-					c.onError(wrapKgoConsumerError(errs[i].Err))
+					c.callbacks.onConsumerError(wrapKgoConsumerError(errs[i].Err))
 				}
 
 				continue
@@ -91,7 +97,8 @@ func (c *Client) consumeWorker(ctx context.Context) {
 func (c *Client) commitWorker() {
 	defer c.wg.Done()
 
-	pendingCommits := make([]*kgo.Record, 0, c.maxFetches)
+	maxFetches := c.config.maxFetches
+	pendingCommits := make([]*kgo.Record, 0, maxFetches)
 	ticker := time.NewTicker(commitInterval)
 	defer ticker.Stop()
 
@@ -99,7 +106,7 @@ func (c *Client) commitWorker() {
 		select {
 		case r := <-c.commitQueue:
 			pendingCommits = append(pendingCommits, r)
-			if len(pendingCommits) >= c.maxFetches {
+			if len(pendingCommits) >= maxFetches {
 				_ = c.client.CommitRecords(c.client.Context(), pendingCommits...)
 				clear(pendingCommits)
 				pendingCommits = pendingCommits[:0]
@@ -124,11 +131,11 @@ func (c *Client) commitWorker() {
 }
 
 func (c *Client) PollRecords(fn func(r Record)) error {
-	if c.consumerRunning {
+	if c.consumer.running {
 		return fmt.Errorf("background consumer running")
 	}
 
-	fetches := c.client.PollRecords(nil, c.maxFetches)
+	fetches := c.client.PollRecords(nil, c.config.maxFetches)
 	if fetches.IsClientClosed() {
 		return kgo.ErrClientClosed
 	}
@@ -145,11 +152,11 @@ func (c *Client) PollRecords(fn func(r Record)) error {
 }
 
 func (c *Client) PollRecordsContext(ctx context.Context, fn func(r Record)) error {
-	if c.consumerRunning {
+	if c.consumer.running {
 		return fmt.Errorf("background consumer running")
 	}
 
-	fetches := c.client.PollRecords(ctx, c.maxFetches)
+	fetches := c.client.PollRecords(ctx, c.config.maxFetches)
 	if fetches.IsClientClosed() {
 		return kgo.ErrClientClosed
 	}
@@ -166,11 +173,11 @@ func (c *Client) PollRecordsContext(ctx context.Context, fn func(r Record)) erro
 }
 
 func (c *Client) FetchRecords() ([]*kgo.Record, error) {
-	if c.consumerRunning {
+	if c.consumer.running {
 		return nil, fmt.Errorf("background consumer running")
 	}
 
-	fetches := c.client.PollRecords(nil, c.maxFetches)
+	fetches := c.client.PollRecords(nil, c.config.maxFetches)
 	if fetches.IsClientClosed() {
 		return nil, kgo.ErrClientClosed
 	}
@@ -183,11 +190,11 @@ func (c *Client) FetchRecords() ([]*kgo.Record, error) {
 }
 
 func (c *Client) FetchRecordsContext(ctx context.Context) ([]*kgo.Record, error) {
-	if c.consumerRunning {
+	if c.consumer.running {
 		return nil, fmt.Errorf("background consumer running")
 	}
 
-	fetches := c.client.PollRecords(ctx, c.maxFetches)
+	fetches := c.client.PollRecords(ctx, c.config.maxFetches)
 	if fetches.IsClientClosed() {
 		return nil, kgo.ErrClientClosed
 	}
