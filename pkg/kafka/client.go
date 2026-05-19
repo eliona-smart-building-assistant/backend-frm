@@ -152,6 +152,10 @@ func (c *Client) Close() {
 	c.client.CloseAllowingRebalance()
 }
 
+func (c *Client) Ping(ctx context.Context) error {
+	return c.client.Ping(ctx)
+}
+
 func (c *Client) CommitRecords(r ...Record) {
 	for i := range r {
 		c.commitQueue <- r[i]

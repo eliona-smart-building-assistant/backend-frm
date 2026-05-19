@@ -155,19 +155,23 @@ func (p *Pool) Close(ctx context.Context) error {
 	return nil
 }
 
-func (p *Pool) Exec(ctx context.Context, query string, args ...interface{}) (pgconn.CommandTag, error) {
+func (p *Pool) Ping(ctx context.Context) error {
+	return p.pool.Ping(ctx)
+}
+
+func (p *Pool) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	ct, err := p.pool.Exec(ctx, query, args...)
 
 	return ct, wrapPgxError(err)
 }
 
-func (p *Pool) Query(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
+func (p *Pool) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	rows, err := p.pool.Query(ctx, query, args...)
 
 	return rows, wrapPgxError(err)
 }
 
-func (p *Pool) ExecAs(ctx context.Context, role string, query string, args ...interface{}) (pgconn.CommandTag, error) {
+func (p *Pool) ExecAs(ctx context.Context, role string, query string, args ...any) (pgconn.CommandTag, error) {
 	conn, err := p.AcquireConn(ctx)
 	if err != nil {
 		return pgconn.CommandTag{}, err
@@ -191,7 +195,7 @@ func (p *Pool) ExecAs(ctx context.Context, role string, query string, args ...in
 	return ct, nil
 }
 
-func (p *Pool) QueryAs(ctx context.Context, role string, query string, args ...interface{}) (pgx.Rows, error) {
+func (p *Pool) QueryAs(ctx context.Context, role string, query string, args ...any) (pgx.Rows, error) {
 	conn, err := p.AcquireConn(ctx)
 	if err != nil {
 		return nil, err
