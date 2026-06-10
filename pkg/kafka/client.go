@@ -38,16 +38,19 @@ type config struct {
 
 type consumer struct {
 	sc      *splitConsumer
+	done    chan struct{}
 	running bool
 }
 
 type Client struct {
 	client        *kgo.Client
+	pingTimeout   time.Duration
 	logger        log.Logger
 	opts          []kgo.Opt
 	subsMu        sync.Mutex
 	subscriptions Subscriptions
 	shutdown      chan struct{}
+	stopConsuming chan struct{}
 	commitQueue   chan *kgo.Record
 	wg            sync.WaitGroup
 	callbacks     eventCallbacks
@@ -65,9 +68,10 @@ func defaultClient() *Client {
 		config: config{
 			maxFetches: 1,
 		},
-		logger:   log.NoopLogger(),
-		opts:     []kgo.Opt{kgo.ClientID(hostname)},
-		shutdown: make(chan struct{}),
+		pingTimeout: 10 * time.Second,
+		logger:      log.NoopLogger(),
+		opts:        []kgo.Opt{kgo.ClientID(hostname)},
+		shutdown:    make(chan struct{}),
 	}
 }
 
@@ -99,7 +103,7 @@ func New(opts ...Opt) (*Client, error) {
 		Logger()
 	client.logger = &logger
 
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), client.pingTimeout)
 	defer pingCancel()
 	err = client.client.Ping(pingCtx)
 	if err != nil {

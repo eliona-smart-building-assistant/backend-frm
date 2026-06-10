@@ -48,8 +48,10 @@ func (c *Client) RemoveSubscription(topic string) {
 	c.subsMu.Unlock()
 }
 
-// StartConsumer starts background polling of records on topics defined in Subscriptions
+// StartConsumer starts background polling of records on topics defined in Subscriptions.
+// Consumption is stopped either by canceling the context or via [Client.StopConsumer]
 func (c *Client) StartConsumer(ctx context.Context) {
+	c.stopConsuming = make(chan struct{})
 	c.consumer.running = true
 
 	c.wg.Add(1)
@@ -60,8 +62,26 @@ func (c *Client) StartConsumer(ctx context.Context) {
 	}
 }
 
+// StopConsumer stops the background consuming of records. If the fetches are already being processed,
+// it will block untill processing is finished.
+//
+// This function can also be used to check wether the consumer has stopped after the cancelation of context
+// passe to [Client.StartConsumer]
+func (c *Client) StopConsumer() {
+	if !c.consumer.running {
+		return
+	}
+
+	close(c.stopConsuming)
+	c.logger.Debug().Msg("waiting for consumer to finish processing")
+	<-c.consumer.done
+}
+
 func (c *Client) consumeWorker(ctx context.Context) {
+	c.consumer.done = make(chan struct{})
+
 	defer func() {
+		close(c.consumer.done)
 		c.wg.Done()
 		c.consumer.running = false
 	}()
@@ -70,6 +90,8 @@ func (c *Client) consumeWorker(ctx context.Context) {
 	for {
 		select {
 		case <-c.shutdown:
+			return
+		case <-c.stopConsuming:
 			return
 		default:
 			fetches := c.client.PollRecords(ctx, maxFetches)
@@ -130,28 +152,8 @@ func (c *Client) commitWorker() {
 	}
 }
 
-func (c *Client) PollRecords(fn func(r Record)) error {
-	if c.consumer.running {
-		return fmt.Errorf("background consumer running")
-	}
-
-	fetches := c.client.PollRecords(nil, c.config.maxFetches)
-	if fetches.IsClientClosed() {
-		return kgo.ErrClientClosed
-	}
-
-	if errs := fetches.Errors(); len(errs) > 0 {
-		return fetches.Err0()
-	}
-
-	fetches.EachRecord(func(record *kgo.Record) {
-		fn(record)
-	})
-
-	return nil
-}
-
-func (c *Client) PollRecordsContext(ctx context.Context, fn func(r Record)) error {
+// EachNewRecord fetches up to [WithMaxFetchCount] records and calls fn for each of them
+func (c *Client) EachNewRecord(ctx context.Context, fn func(r Record)) error {
 	if c.consumer.running {
 		return fmt.Errorf("background consumer running")
 	}
@@ -172,24 +174,8 @@ func (c *Client) PollRecordsContext(ctx context.Context, fn func(r Record)) erro
 	return nil
 }
 
-func (c *Client) FetchRecords() ([]*kgo.Record, error) {
-	if c.consumer.running {
-		return nil, fmt.Errorf("background consumer running")
-	}
-
-	fetches := c.client.PollRecords(nil, c.config.maxFetches)
-	if fetches.IsClientClosed() {
-		return nil, kgo.ErrClientClosed
-	}
-
-	if errs := fetches.Errors(); len(errs) > 0 {
-		return nil, fetches.Err0()
-	}
-
-	return fetches.Records(), nil
-}
-
-func (c *Client) FetchRecordsContext(ctx context.Context) ([]*kgo.Record, error) {
+// FetchRecordsBatch return a slice of [Record] which max length is set with [WithMaxFetchCount]
+func (c *Client) FetchRecordsBatch(ctx context.Context) ([]Record, error) {
 	if c.consumer.running {
 		return nil, fmt.Errorf("background consumer running")
 	}
