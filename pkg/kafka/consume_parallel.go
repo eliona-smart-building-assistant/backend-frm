@@ -88,7 +88,10 @@ func (s *splitConsumer) onPartitionsLost(_ context.Context, _ *kgo.Client, lost 
 }
 
 func (s *splitConsumer) consume(ctx context.Context) {
+	s.client.consumer.done = make(chan struct{})
+
 	defer func() {
+		close(s.client.consumer.done)
 		s.client.wg.Done()
 		s.client.consumer.running = false
 	}()
@@ -101,10 +104,11 @@ func (s *splitConsumer) consume(ctx context.Context) {
 		select {
 		case <-s.client.shutdown:
 			return
+		case <-s.client.stopConsuming:
+			return
 		default:
 		}
 
-		//fetches := cl.PollRecords(ctx, maxFetches)
 		fetches := s.poll(ctx, cl, blockRebalance, maxFetches)
 		if fetches.IsClientClosed() {
 			return

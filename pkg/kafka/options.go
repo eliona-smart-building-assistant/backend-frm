@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"time"
 
 	"github.com/eliona-smart-building-assistant/backend-frm/pkg/log"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -112,5 +113,11 @@ func WithBlockRebalanceOnPoll() Opt {
 	return func(c *Client) {
 		c.opts = append(c.opts, kgo.BlockRebalanceOnPoll())
 		c.config.blockRebalance = true
+	}
+}
+
+func WithPingTimeout(t time.Duration) Opt {
+	return func(c *Client) {
+		c.pingTimeout = t
 	}
 }
