@@ -2,6 +2,7 @@ package eliona
 
 import (
 	"context"
+	"os"
 	"strconv"
 
 	"github.com/eliona-smart-building-assistant/backend-frm/pkg/azure/identity"
@@ -29,6 +30,9 @@ func getDatabasePool(ctx context.Context, appName string, poolSize int, opts ...
 
 func CreateDbPool(ctx context.Context, appName string, poolSize int, opts ...postgres.Opt) (*postgres.Pool, error) {
 	dsn := utils.EnvOrDefault("CONNECTION_STRING", "")
+
+	hostname, _ := os.Hostname()
+	appName = appName + "-" + hostname
 
 	pool, err := postgres.NewPool(
 		ctx,
