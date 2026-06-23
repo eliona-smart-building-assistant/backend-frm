@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -31,7 +33,7 @@ var defaultExporter prometheusExporter
 
 // StartExporter launches the webserver on designated port (:5000) which provides:
 //
-// 1. Go runtime metrics on /runtime/metrics
+// 1. Go runtime metrics and all metrics from passed Colletors on /runtime/metrics
 //
 // 2. Liveness probes via liveProbe callback
 //
@@ -39,9 +41,17 @@ var defaultExporter prometheusExporter
 //
 // In liveness probe you likely want to return the errors (if any) like database or kafka not available.
 // See description of [CheckFn] for more information.
-func StartExporter(liveProbe, readyProbe CheckFn) {
+func StartExporter(liveProbe, readyProbe CheckFn, cs ...prometheus.Collector) {
+	allCollectors := make([]prometheus.Collector, 0, 1+len(cs))
+	allCollectors = append(allCollectors, collectors.NewGoCollector())
+	allCollectors = append(allCollectors, cs...)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(
+		allCollectors...,
+	)
+
 	mux := http.NewServeMux()
-	mux.Handle(defaultMetricsPath, promhttp.Handler())
+	mux.Handle(defaultMetricsPath, promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/livez", wrapChecker(liveProbe, http.StatusInternalServerError))
 	mux.HandleFunc("/readyz", wrapChecker(readyProbe, http.StatusServiceUnavailable))
 
