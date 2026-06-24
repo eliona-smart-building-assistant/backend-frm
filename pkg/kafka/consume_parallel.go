@@ -94,6 +94,9 @@ func (s *splitConsumer) consume(ctx context.Context) {
 		close(s.client.consumer.done)
 		s.client.wg.Done()
 		s.client.consumer.running = false
+		if s.client.config.blockRebalance {
+			s.client.AllowRebalance()
+		}
 	}()
 
 	cl := s.client.client
@@ -116,6 +119,9 @@ func (s *splitConsumer) consume(ctx context.Context) {
 
 		if errors.Is(fetches.Err0(), context.DeadlineExceeded) {
 			s.client.logger.Debug().Err(fetches.Err0()).Msg("polling timeout, next loop")
+			if s.client.config.blockRebalance {
+				s.client.AllowRebalance()
+			}
 			continue
 		}
 

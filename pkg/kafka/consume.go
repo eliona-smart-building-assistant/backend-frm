@@ -104,6 +104,10 @@ func (c *Client) consumeWorker(ctx context.Context) {
 					c.callbacks.onConsumerError(wrapKgoConsumerError(errs[i].Err))
 				}
 
+				if c.config.blockRebalance {
+					c.client.AllowRebalance()
+				}
+
 				continue
 			}
 
@@ -112,6 +116,10 @@ func (c *Client) consumeWorker(ctx context.Context) {
 				c.subscriptions[r.Topic](r)
 			})
 			c.subsMu.Unlock()
+
+			if c.config.blockRebalance {
+				c.client.AllowRebalance()
+			}
 		}
 	}
 }
@@ -153,6 +161,8 @@ func (c *Client) commitWorker() {
 }
 
 // EachNewRecord fetches up to [WithMaxFetchCount] records and calls fn for each of them
+//
+// If [WithBlockRebalanceOnPoll] option is set, rebalance is allowed after all records are processed
 func (c *Client) EachNewRecord(ctx context.Context, fn func(r Record)) error {
 	if c.consumer.running {
 		return fmt.Errorf("background consumer running")
@@ -171,10 +181,17 @@ func (c *Client) EachNewRecord(ctx context.Context, fn func(r Record)) error {
 		fn(record)
 	})
 
+	if c.config.blockRebalance {
+		c.client.AllowRebalance()
+	}
+
 	return nil
 }
 
 // FetchRecordsBatch return a slice of [Record] which max length is set with [WithMaxFetchCount]
+//
+// It does not automatically allow rebalancing if [WithBlockRebalanceOnPoll] options is set.
+// Rebalancing must be explicitly allowed via [Client.AllowRebalance] after records are processed
 func (c *Client) FetchRecordsBatch(ctx context.Context) ([]Record, error) {
 	if c.consumer.running {
 		return nil, fmt.Errorf("background consumer running")
@@ -190,4 +207,8 @@ func (c *Client) FetchRecordsBatch(ctx context.Context) ([]Record, error) {
 	}
 
 	return fetches.Records(), nil
+}
+
+func (c *Client) AllowRebalance() {
+	c.client.AllowRebalance()
 }
