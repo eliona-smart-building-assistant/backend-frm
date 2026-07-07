@@ -121,3 +121,18 @@ func WithPingTimeout(t time.Duration) Opt {
 		c.pingTimeout = t
 	}
 }
+
+// WithPingRetries sets how many times the startup broker ping is attempted before
+// NewClient gives up (default 100). Each attempt uses the ping timeout.
+func WithPingRetries(n int) Opt {
+	return func(c *Client) {
+		c.pingRetries = n
+	}
+}
+
+// WithPingBackoff sets the delay between startup broker ping attempts (default 3s).
+func WithPingBackoff(d time.Duration) Opt {
+	return func(c *Client) {
+		c.pingBackoff = d
+	}
+}

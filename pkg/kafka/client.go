@@ -45,6 +45,8 @@ type consumer struct {
 type Client struct {
 	client        *kgo.Client
 	pingTimeout   time.Duration
+	pingRetries   int
+	pingBackoff   time.Duration
 	logger        log.Logger
 	opts          []kgo.Opt
 	subsMu        sync.Mutex
@@ -69,6 +71,8 @@ func defaultClient() *Client {
 			maxFetches: 1,
 		},
 		pingTimeout: 10 * time.Second,
+		pingRetries: 100,
+		pingBackoff: 3 * time.Second,
 		logger:      log.NoopLogger(),
 		opts:        []kgo.Opt{kgo.ClientID(hostname)},
 		shutdown:    make(chan struct{}),
@@ -103,10 +107,7 @@ func New(opts ...Opt) (*Client, error) {
 		Logger()
 	client.logger = &logger
 
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), client.pingTimeout)
-	defer pingCancel()
-	err = client.client.Ping(pingCtx)
-	if err != nil {
+	if err = client.pingWithRetry(context.Background()); err != nil {
 		return nil, err
 	}
 
@@ -154,6 +155,32 @@ func (c *Client) Close() {
 	close(c.shutdown)
 	c.wg.Wait()
 	c.client.CloseAllowingRebalance()
+}
+
+// pingWithRetry retries the initial broker ping until it succeeds, pingRetries is
+// exhausted, or ctx is cancelled. A broker can be temporarily unreachable at startup
+// (DNS not yet resolvable, broker not yet ready) or be rescheduled after the client
+// starts, so NewClient must not give up on the first failed ping; the last error is
+// returned to the caller once retries are exhausted.
+func (c *Client) pingWithRetry(ctx context.Context) error {
+	for attempt := 1; ; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, c.pingTimeout)
+		err := c.client.Ping(pingCtx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if attempt >= c.pingRetries {
+			return err
+		}
+		c.logger.Warn().Err(err).Int("attempt", attempt).Int("max_attempts", c.pingRetries).
+			Msg("kafka broker not reachable; retrying")
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(c.pingBackoff):
+		}
+	}
 }
 
 func (c *Client) Ping(ctx context.Context) error {
