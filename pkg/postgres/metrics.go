@@ -150,6 +150,6 @@ func (m *MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(
 		m.maxIdleDestroyCount,
 		prometheus.CounterValue,
-		float64(stat.MaxLifetimeDestroyCount()),
+		float64(stat.MaxIdleDestroyCount()),
 	)
 }
