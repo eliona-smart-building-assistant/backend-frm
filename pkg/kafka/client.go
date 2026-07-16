@@ -165,3 +165,7 @@ func (c *Client) CommitRecords(r ...Record) {
 		c.commitQueue <- r[i]
 	}
 }
+
+func (c *Client) Flush(ctx context.Context) error {
+	return c.client.Flush(ctx)
+}
