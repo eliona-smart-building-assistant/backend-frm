@@ -71,7 +71,8 @@ func defaultClient() *Client {
 			onPublishResult: func(Record) {},
 		},
 		config: config{
-			maxFetches: 1,
+			maxFetches:  1,
+			pingTimeout: defaultPingTimeout,
 		},
 		logger:   log.NoopLogger(),
 		opts:     []kgo.Opt{kgo.ClientID(hostname)},
