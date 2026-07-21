@@ -11,6 +11,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+const (
+	defaultPingTimeout = 10 * time.Second
+)
+
 type Record = *kgo.Record
 
 func NewRecord() Record {
@@ -30,10 +34,12 @@ type eventCallbacks struct {
 }
 
 type config struct {
+	maxFetches     int
+	pingTimeout    time.Duration
 	splitConsumer  bool
 	manualCommit   bool
 	blockRebalance bool
-	maxFetches     int
+	noInitPing     bool
 }
 
 type consumer struct {
@@ -44,7 +50,6 @@ type consumer struct {
 
 type Client struct {
 	client        *kgo.Client
-	pingTimeout   time.Duration
 	logger        log.Logger
 	opts          []kgo.Opt
 	subsMu        sync.Mutex
@@ -66,12 +71,12 @@ func defaultClient() *Client {
 			onPublishResult: func(Record) {},
 		},
 		config: config{
-			maxFetches: 1,
+			maxFetches:  1,
+			pingTimeout: defaultPingTimeout,
 		},
-		pingTimeout: 10 * time.Second,
-		logger:      log.NoopLogger(),
-		opts:        []kgo.Opt{kgo.ClientID(hostname)},
-		shutdown:    make(chan struct{}),
+		logger:   log.NoopLogger(),
+		opts:     []kgo.Opt{kgo.ClientID(hostname)},
+		shutdown: make(chan struct{}),
 	}
 }
 
@@ -103,11 +108,13 @@ func New(opts ...Opt) (*Client, error) {
 		Logger()
 	client.logger = &logger
 
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), client.pingTimeout)
-	defer pingCancel()
-	err = client.client.Ping(pingCtx)
-	if err != nil {
-		return nil, err
+	if !client.config.noInitPing {
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), client.config.pingTimeout)
+		defer pingCancel()
+		err = client.client.Ping(pingCtx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if client.config.manualCommit {
@@ -156,6 +163,7 @@ func (c *Client) Close() {
 	c.client.CloseAllowingRebalance()
 }
 
+// Ping tests the connection to seed brokers using ctx as cancelation/timeout
 func (c *Client) Ping(ctx context.Context) error {
 	return c.client.Ping(ctx)
 }

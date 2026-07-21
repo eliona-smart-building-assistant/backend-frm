@@ -116,8 +116,20 @@ func WithBlockRebalanceOnPoll() Opt {
 	}
 }
 
+// WithPingTimeout sets initial ping-check (during client creation) timeout to t overriding the default of 10 seconds.
+// This option make no sense if [WithNoInitialPing] is used.
 func WithPingTimeout(t time.Duration) Opt {
 	return func(c *Client) {
-		c.pingTimeout = t
+		c.config.pingTimeout = t
+	}
+}
+
+// WithNoInitialPing disables ping-check during client creation.
+// You can later check the connectivity via [Client.Ping].
+//
+// Might be useful when you want to retry the initial connection to broker.
+func WithNoInitialPing() Opt {
+	return func(c *Client) {
+		c.config.noInitPing = true
 	}
 }
