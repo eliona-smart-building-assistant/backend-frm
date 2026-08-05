@@ -27,7 +27,7 @@ type ExecutionInternal[R any] interface {
 	// IsCanceledWithResult returns whether the execution is canceled, along with the cancellation result, if any.
 	IsCanceledWithResult() (bool, *common.PolicyResult[R])
 
-	// CopyWithResult returns a copy of the failsafe.Execution with the result. If the result is nil, this will preserve a
+	// CopyWithResult returns a copy of the safety.Execution with the result. If the result is nil, this will preserve a
 	// copy of the lastResult and lastError. This is useful before passing the execution to an event listener, otherwise
 	// these may be changed if the execution is canceled.
 	CopyWithResult(result *common.PolicyResult[R]) safety.Execution[R]

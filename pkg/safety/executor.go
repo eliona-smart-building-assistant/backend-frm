@@ -94,7 +94,7 @@ type executor[R any] struct {
 // With creates and returns a new Executor for result type R that will handle failures according to the given
 // policies. The policies are composed around a func and will handle its results in reverse order. For example, consider:
 //
-//	failsafe.With(fallback, retryPolicy, circuitBreaker).Get(fn)
+//	safety.With(fallback, retryPolicy, circuitBreaker).Get(fn)
 //
 // This creates the following composition when executing a func and handling its result:
 //
