@@ -1,7 +1,10 @@
 package kafka
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -23,6 +26,8 @@ func (c *Client) CreateTopic(name string, parts int32, replicas int16, config ma
 
 func (c *Client) AlterTopicConfig(name string, config map[string]*string) error {
 	admin := kadm.NewClient(c.client)
+	admin.SetTimeoutMillis(defaultOperationTimeout)
+
 	alters := make([]kadm.AlterConfig, 0)
 	for k, v := range config {
 		alter := kadm.AlterConfig{
@@ -37,4 +42,22 @@ func (c *Client) AlterTopicConfig(name string, config map[string]*string) error 
 	_, err := admin.AlterTopicConfigs(c.client.Context(), alters, name)
 
 	return err
+}
+
+func (c *Client) GetTopicPartitionCount(topic string) (int, error) {
+	admin := kadm.NewClient(c.client)
+	admin.SetTimeoutMillis(defaultOperationTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout*time.Millisecond)
+	defer cancel()
+
+	topicDetails, err := admin.ListTopics(ctx, topic)
+	if err != nil {
+		return 0, err
+	}
+
+	if detail, ok := topicDetails[topic]; ok {
+		return len(detail.Partitions), nil
+	}
+
+	return 0, fmt.Errorf("topic not found")
 }
