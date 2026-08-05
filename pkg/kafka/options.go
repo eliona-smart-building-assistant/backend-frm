@@ -84,6 +84,7 @@ const (
 )
 
 type PartitionEventCb func(event PartitionEvent, topic string, partition int)
+type PartitionEventBulkCb func(event PartitionEvent, topic string, partitions []int)
 
 func WithOnPartitionEvents(fn PartitionEventCb) Opt {
 	cb := func(event PartitionEvent) func(context.Context, *kgo.Client, map[string][]int32) {
@@ -92,6 +93,26 @@ func WithOnPartitionEvents(fn PartitionEventCb) Opt {
 				for i := range partitions {
 					fn(event, topic, int(partitions[i]))
 				}
+			}
+		}
+	}
+
+	return func(c *Client) {
+		c.callbacks.onPartitionsAssigned = append(c.callbacks.onPartitionsAssigned, cb(PartitionAssigned))
+		c.callbacks.onPartitionsRevoked = append(c.callbacks.onPartitionsRevoked, cb(Partitionrevoked))
+		c.callbacks.onPartitionsLost = append(c.callbacks.onPartitionsLost, cb(PartitionLost))
+	}
+}
+
+func WithOnPartitionEventsBulk(fn PartitionEventBulkCb) Opt {
+	cb := func(event PartitionEvent) func(context.Context, *kgo.Client, map[string][]int32) {
+		return func(_ context.Context, _ *kgo.Client, m map[string][]int32) {
+			for topic, partitions := range m {
+				p := make([]int, len(partitions))
+				for i := range partitions {
+					p[i] = int(partitions[i])
+				}
+				fn(event, topic, p)
 			}
 		}
 	}
