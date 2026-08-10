@@ -1,6 +1,14 @@
 package postgres
 
 import (
+	"bufio"
+	"context"
+	"reflect"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -20,8 +28,10 @@ type MetricsCollector struct {
 	newConnsCount           *prometheus.Desc
 	maxLifetimeDestroyCount *prometheus.Desc
 	maxIdleDestroyCount     *prometheus.Desc
+	queryCollector          *QueryMetricsColletor
 }
 
+// NewMetricsConnector return Prometheus collector that provides all metric groups
 func (p *Pool) NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{
 		statFn: p.Pool().Stat,
@@ -77,11 +87,15 @@ func (p *Pool) NewMetricsCollector() *MetricsCollector {
 			"pgxpool_max_idle_destroy_count",
 			"Cumulative count of connections destroyed because they exceeded MaxConnIdleTime.",
 			nil, nil),
+		queryCollector: p.queryCollector,
 	}
 }
 
 func (m *MetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 	prometheus.DescribeByCollect(m, ch)
+	if m.queryCollector != nil {
+		m.queryCollector.Describe(ch)
+	}
 }
 
 func (m *MetricsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -152,4 +166,167 @@ func (m *MetricsCollector) Collect(ch chan<- prometheus.Metric) {
 		prometheus.CounterValue,
 		float64(stat.MaxIdleDestroyCount()),
 	)
+
+	if m.queryCollector != nil {
+		m.queryCollector.Collect(ch)
+	}
+}
+
+// MARK - QueryCollector
+
+// ContextKey represents a context key.
+type ContextKey struct {
+	name string
+}
+
+// String returns the context key as a string.
+func (k *ContextKey) String() string {
+	return k.name
+}
+
+// TraceQueryKey represents the context key of the data.
+var TraceQueryKey = &ContextKey{
+	name: reflect.TypeFor[TraceQueryData]().PkgPath(),
+}
+
+// TraceQueryData represents a query data
+type TraceQueryData struct {
+	StartedAt time.Time
+	SQL       string
+	Operation string
+	Args      []any
+}
+
+// TraceBatchKey represents the context key of the data.
+var TraceBatchKey = &ContextKey{
+	name: reflect.TypeFor[TraceBatchData]().PkgPath(),
+}
+
+// TraceBatchData represents a batch data
+type TraceBatchData struct {
+	StartedAt time.Time
+	Batch     *pgx.Batch
+}
+
+type QueryMetricsColletor struct {
+	queriesTotal  *prometheus.CounterVec
+	errorsTotal   *prometheus.CounterVec
+	queryDuration *prometheus.HistogramVec
+}
+
+func (p *Pool) newQueryMetricsCollector(nspc string) *QueryMetricsColletor {
+	labels := []string{"db_operation"}
+
+	return &QueryMetricsColletor{
+		queriesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: nspc,
+				Subsystem: "query",
+				Name:      "total",
+			},
+			labels,
+		),
+		errorsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: nspc,
+				Subsystem: "query",
+				Name:      "errors_total",
+			},
+			labels,
+		),
+		queryDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: nspc,
+				Subsystem: "duration",
+				Name:      "duration_s",
+				Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 10},
+			},
+			labels,
+		),
+	}
+}
+
+func (q *QueryMetricsColletor) Describe(ch chan<- *prometheus.Desc) {
+	q.errorsTotal.Describe(ch)
+	q.queriesTotal.Describe(ch)
+	q.queryDuration.Describe(ch)
+}
+
+func (q *QueryMetricsColletor) Collect(ch chan<- prometheus.Metric) {
+	q.errorsTotal.Collect(ch)
+	q.queriesTotal.Collect(ch)
+	q.queryDuration.Collect(ch)
+}
+
+func (q *QueryMetricsColletor) TraceQueryStart(ctx context.Context, conn *pgx.Conn, args pgx.TraceQueryStartData) context.Context {
+	operation := sqlOperation(args.SQL)
+	lables := prometheus.Labels{
+		"db_operation": operation,
+	}
+
+	q.queriesTotal.With(lables).Inc()
+
+	return context.WithValue(
+		ctx, TraceQueryKey,
+		&TraceQueryData{
+			StartedAt: time.Now().UTC(),
+			Operation: operation,
+			SQL:       args.SQL,
+			Args:      args.Args,
+		})
+}
+
+func (q *QueryMetricsColletor) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, args pgx.TraceQueryEndData) {
+	data, ok := ctx.Value(TraceQueryKey).(*TraceQueryData)
+	if !ok {
+		return
+	}
+
+	labels := prometheus.Labels{
+		"db_operation": data.Operation,
+	}
+
+	if args.Err != nil {
+		q.errorsTotal.With(labels).Inc()
+	}
+
+	q.queryDuration.With(labels).Observe(time.Since(data.StartedAt).Seconds())
+}
+
+var (
+	customNamePattern = regexp.MustCompile(`^--\s+name:\s+(\w+)`)
+	keywordPattern    = regexp.MustCompile(`(?i)^\s*(SELECT|INSERT|UPDATE|DELETE|COPY|CALL|EXECUTE|BEGIN|COMMIT|ROLLBACK|CREATE|DROP|ALTER|TRUNCATE|EXPLAIN)\b`)
+)
+
+func sqlOperation(sql string) string {
+	if name := customNamePattern.FindStringSubmatch(sql); len(name) == 2 {
+		return name[1]
+	}
+
+	if operation := keywordPattern.FindStringSubmatch(plainQuery(sql)); len(operation) == 2 {
+		return strings.ToUpper(operation[1])
+	}
+
+	return "database.query"
+}
+
+func plainQuery(query string) string {
+	scanner := bufio.NewScanner(strings.NewReader(query))
+	var b strings.Builder
+	for scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if idx := strings.Index(text, "--"); idx == 0 {
+			continue
+		} else if idx > 0 {
+			text = strings.TrimSpace(text[:idx])
+		}
+		if text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(text)
+	}
+	return b.String()
 }

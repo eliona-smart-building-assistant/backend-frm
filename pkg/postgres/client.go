@@ -20,6 +20,7 @@ const (
 
 type Pool struct {
 	pool                  *pgxpool.Pool
+	queryCollector        *QueryMetricsColletor
 	maxPoolSize           int
 	port                  int
 	dsn                   string
@@ -29,6 +30,7 @@ type Pool struct {
 	allowCredentialChange bool
 	asyncCommits          bool
 	resetOnAcquire        bool
+	noQueryTracer         bool
 	overrideRole          string
 	afterConnectFuncs     []func(ctx context.Context, conn *pgx.Conn) error
 	afterReleaseFuncs     []func(conn *pgx.Conn) bool
@@ -125,6 +127,12 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 
 			return true
 		}
+	}
+
+	if !pool.noQueryTracer {
+		collector := pool.newQueryMetricsCollector(pool.appName)
+		poolCfg.ConnConfig.Tracer = collector
+		pool.queryCollector = collector
 	}
 
 	pool.pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
