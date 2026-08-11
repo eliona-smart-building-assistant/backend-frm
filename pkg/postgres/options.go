@@ -68,3 +68,9 @@ func WithResetOnAcquire() Opt {
 		p.resetOnAcquire = true
 	}
 }
+
+func DisableQueryTracer() Opt {
+	return func(p *Pool) {
+		p.noQueryTracer = true
+	}
+}
