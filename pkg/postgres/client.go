@@ -68,7 +68,7 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 		return nil, wrapPgxError(err)
 	}
 
-	poolCfg.ConnConfig.RuntimeParams["application_name"] = pool.appName
+	poolCfg.ConnConfig.RuntimeParams["application_name"] = pool.appName + "-" + pool.hostname
 	poolCfg.MaxConns = int32(pool.maxPoolSize)
 
 	if pool.allowCredentialChange {
