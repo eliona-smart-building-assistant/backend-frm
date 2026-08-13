@@ -9,6 +9,7 @@ import (
 	"github.com/eliona-smart-building-assistant/backend-frm/pkg/log"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kprom"
 )
 
 const (
@@ -49,22 +50,25 @@ type consumer struct {
 }
 
 type Client struct {
-	client        *kgo.Client
-	logger        log.Logger
-	opts          []kgo.Opt
-	subsMu        sync.Mutex
-	subscriptions Subscriptions
-	shutdown      chan struct{}
-	stopConsuming chan struct{}
-	commitQueue   chan *kgo.Record
-	wg            sync.WaitGroup
-	callbacks     eventCallbacks
-	config        config
-	consumer      consumer
+	client           *kgo.Client
+	metricsCollector *kprom.Metrics
+	clientId         string
+	logger           log.Logger
+	opts             []kgo.Opt
+	subsMu           sync.Mutex
+	subscriptions    Subscriptions
+	shutdown         chan struct{}
+	stopConsuming    chan struct{}
+	commitQueue      chan *kgo.Record
+	wg               sync.WaitGroup
+	callbacks        eventCallbacks
+	config           config
+	consumer         consumer
 }
 
 func defaultClient() *Client {
 	hostname, _ := os.Hostname()
+
 	return &Client{
 		callbacks: eventCallbacks{
 			onConsumerError: func(error) {},
@@ -75,7 +79,7 @@ func defaultClient() *Client {
 			pingTimeout: defaultPingTimeout,
 		},
 		logger:   log.NoopLogger(),
-		opts:     []kgo.Opt{kgo.ClientID(hostname)},
+		opts:     []kgo.Opt{kgo.ClientID("unnamed-client" + "-" + hostname)},
 		shutdown: make(chan struct{}),
 	}
 }
@@ -95,6 +99,7 @@ func New(opts ...Opt) (*Client, error) {
 		client.callbacks.onPartitionsLost = append(client.callbacks.onPartitionsLost, client.consumer.sc.onPartitionsLost)
 	}
 
+	client.opts = append(client.opts, kgo.WithHooks(client.newMetricsCollector()))
 	client.assignPartitionCallbacks()
 
 	client.client, err = kgo.NewClient(client.opts...)
@@ -104,7 +109,7 @@ func New(opts ...Opt) (*Client, error) {
 
 	logger := client.logger.With().
 		Str("module", "kafka").
-		Str("client_id", client.client.OptValue(kgo.ClientID).(string)).
+		Str("client_id", client.clientId).
 		Logger()
 	client.logger = &logger
 

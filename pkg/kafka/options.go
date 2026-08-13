@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/eliona-smart-building-assistant/backend-frm/pkg/log"
@@ -26,8 +27,11 @@ func WithSubscriptions(s Subscriptions) func(*Client) {
 }
 
 func WithClientID(id string) func(*Client) {
+	hostname, _ := os.Hostname()
+
 	return func(c *Client) {
-		c.opts = append(c.opts, kgo.ClientID(id))
+		c.clientId = id
+		c.opts = append(c.opts, kgo.ClientID(id+"-"+hostname))
 	}
 }
 
