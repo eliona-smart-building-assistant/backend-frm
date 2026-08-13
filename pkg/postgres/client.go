@@ -24,6 +24,7 @@ type Pool struct {
 	maxPoolSize           int
 	port                  int
 	dsn                   string
+	clientHostname        string
 	hostname              string
 	appName               string
 	credMu                sync.Mutex
@@ -43,8 +44,9 @@ func defaultPool() *Pool {
 	hostname, _ := os.Hostname()
 
 	return &Pool{
-		maxPoolSize: 4,
-		appName:     hostname,
+		maxPoolSize:    4,
+		clientHostname: hostname,
+		appName:        "unnamed-app",
 	}
 }
 
@@ -68,7 +70,7 @@ func NewPool(ctx context.Context, opts ...Opt) (*Pool, error) {
 		return nil, wrapPgxError(err)
 	}
 
-	poolCfg.ConnConfig.RuntimeParams["application_name"] = pool.appName + "-" + pool.hostname
+	poolCfg.ConnConfig.RuntimeParams["application_name"] = pool.appName + "-" + pool.clientHostname
 	poolCfg.MaxConns = int32(pool.maxPoolSize)
 
 	if pool.allowCredentialChange {
