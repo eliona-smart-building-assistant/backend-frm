@@ -295,7 +295,7 @@ func (q *QueryMetricsColletor) TraceQueryEnd(ctx context.Context, conn *pgx.Conn
 
 var (
 	customNamePattern = regexp.MustCompile(`^--\s+name:\s+(\w+)`)
-	keywordPattern    = regexp.MustCompile(`(?i)^\s*(SELECT|INSERT|UPDATE|DELETE|COPY|CALL|EXECUTE|BEGIN|COMMIT|ROLLBACK|CREATE|DROP|ALTER|TRUNCATE|EXPLAIN)\b`)
+	keywordPattern    = regexp.MustCompile(`(?i)^\s*(SELECT|INSERT|UPDATE|DELETE|COPY|CALL|EXECUTE|BEGIN|COMMIT|ROLLBACK|CREATE|DROP|ALTER|TRUNCATE|EXPLAIN|WITH|SET")\b`)
 )
 
 func sqlOperation(sql string) string {
