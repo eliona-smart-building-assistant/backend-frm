@@ -18,6 +18,11 @@ type Execer interface {
 	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
 }
 
+type QuerierExecer interface {
+	Querier
+	Execer
+}
+
 func CollectRowsToStruct[T any](ctx context.Context, q Querier, sql string, args ...any) ([]T, error) {
 	rows, err := q.Query(ctx, sql, args...)
 	if err != nil {
