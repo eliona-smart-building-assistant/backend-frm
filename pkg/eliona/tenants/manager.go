@@ -33,7 +33,7 @@ type TenantManager struct {
 }
 
 func NewTenantManager(logger log.Logger, topic string, cfg TenantManagerConfig) (*TenantManager, error) {
-	if cfg.PartitionCount <= 1 {
+	if cfg.PartitionCount < 1 {
 		return nil, fmt.Errorf("partition count should be positive, got %d", cfg.PartitionCount)
 	}
 
