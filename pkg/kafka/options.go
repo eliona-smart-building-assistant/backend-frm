@@ -158,3 +158,14 @@ func WithNoInitialPing() Opt {
 		c.config.noInitPing = true
 	}
 }
+
+// ResetOffsetsTo starts consumption at the first record whose Kafka timestamp
+// is >= ts. Mutually exclusive with ResetOffsetsToEnd (last option wins).
+// NOTE: ts is compared against broker-side record timestamps; for CDC topics
+// that is the connector write time, NOT the database commit time. Callers
+// must subtract a safety margin for connector lag and clock skew.
+func ResetOffsetsTo(ts time.Time) Opt {
+	return func(c *Client) {
+		c.opts = append(c.opts, kgo.ConsumeResetOffset(kgo.NewOffset().AfterMilli(ts.UnixMilli())))
+	}
+}
